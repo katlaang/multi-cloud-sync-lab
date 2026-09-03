@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Multi-Cloud Sync Lab</title>
+  <style>
+    :root { font-family: Inter, system-ui, sans-serif; color-scheme: dark; }
+    body { margin: 0; background:#08101f; color:#edf3ff; }
+    header { padding:24px 28px; border-bottom:1px solid #26334c; }
+    h1 { margin:0 0 6px; font-size:28px; }
+    .sub { color:#aab8d3; }
+    main { padding:24px 28px 40px; max-width:1200px; margin:auto; }
+    .banner { background:#13213d; border:1px solid #2b4b83; padding:10px 14px; border-radius:10px; margin-bottom:18px; }
+    .controls { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
+    button { border:1px solid #35517e; background:#162746; color:#fff; border-radius:8px; padding:10px 13px; cursor:pointer; }
+    button:hover { background:#1d3762; }
+    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+    .card { border:1px solid #283a5b; background:#0d1830; border-radius:14px; padding:18px; min-height:160px; }
+    .offline { border-color:#7d3940; background:#241117; }
+    .provider { font-size:20px; font-weight:700; display:flex; justify-content:space-between; }
+    .badge { font-size:12px; padding:4px 8px; border-radius:99px; background:#1b7343; }
+    .offline .badge { background:#8a2831; }
+    .record { margin-top:22px; line-height:1.65; }
+    .pending { color:#f5c66e; }
+    h2 { margin-top:28px; }
+    pre { background:#050a14; border:1px solid #26334c; border-radius:10px; padding:14px; white-space:pre-wrap; max-height:370px; overflow:auto; }
+    .manual { margin-top:20px; display:flex; gap:8px; flex-wrap:wrap; }
+    select,input { background:#0d1830; color:white; border:1px solid #35517e; border-radius:7px; padding:9px; }
+    @media(max-width:800px){ .grid{grid-template-columns:1fr;} }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Multi-Cloud Sync Lab</h1>
+  <div class="sub">CYC26 reference prototype · Kotlin + Spring Boot · local simulated provider endpoints</div>
+</header>
+<main>
+  <div class="banner"><strong>LOCAL SIMULATION:</strong> AWS, Azure and GCP below are independent in-memory provider stores. Synchronization logic is real application code.</div>
+
+  <div class="controls">
+    <button onclick="post('/api/reset')">Reset</button>
+    <button onclick="post('/api/scenario/normal')">1. Normal sync</button>
+    <button onclick="post('/api/scenario/conflict')">2. Create conflict</button>
+    <button onclick="post('/api/clouds/GCP/offline')">3. Take GCP offline</button>
+    <button onclick="post('/api/scenario/outage-update')">4. Update during outage</button>
+    <button onclick="post('/api/clouds/GCP/online')">5. Restore GCP</button>
+    <button onclick="post('/api/duplicate')">6. Re-send duplicate</button>
+  </div>
+
+  <div id="clouds" class="grid"></div>
+
+  <div class="manual">
+    <select id="source">
+      <option>AWS</option><option>AZURE</option><option>GCP</option>
+    </select>
+    <input id="status" value="CUSTOM_UPDATE">
+    <input id="gate" value="C30">
+    <button onclick="manualUpdate()">Publish manual update</button>
+  </div>
+
+  <h2>Audit trail</h2>
+  <pre id="audit">Loading…</pre>
+</main>
+
+<script>
+async function request(url, options={}) {
+  const response = await fetch(url, options);
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || response.statusText);
+  render(body);
+}
+
+async function post(url) {
+  try {
+    await request(url, {method:'POST'});
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function manualUpdate() {
+  const source = document.getElementById('source').value;
+  const status = document.getElementById('status').value;
+  const gate = document.getElementById('gate').value;
+  try {
+    await request('/api/update', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({source,status,gate})
+    });
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+function render(state) {
+  document.getElementById('clouds').innerHTML = state.clouds.map(c => {
+    const r = c.current || {};
+    return `
+      <div class="card ${c.online ? '' : 'offline'}">
+        <div class="provider">
+          <span>${c.provider}</span>
+          <span class="badge">${c.online ? 'ONLINE' : 'OFFLINE'}</span>
+        </div>
+        <div class="record">
+          <div><strong>${r.entityId || 'No record'}</strong></div>
+          <div>Status: ${r.status || '-'}</div>
+          <div>Gate: ${r.gate || '-'}</div>
+          <div>Version: v${r.version || '-'}</div>
+          <div>Last source: ${r.source || '-'}</div>
+          <div class="pending">Pending events: ${c.pendingEvents}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('audit').textContent =
+    state.audit.map(a => `${a.timestamp}  ${a.type.padEnd(18)} ${a.provider || '-'}  ${a.message}`).join('\n');
+}
+
+request('/api/state');
+setInterval(() => request('/api/state'), 1500);
+</script>
+</body>
+</html>
